@@ -1,0 +1,149 @@
+diff --git a/BUILD.bazel b/BUILD.bazel
+index 42175b5ed..8b313e0f6 100644
+--- a/BUILD.bazel
++++ b/BUILD.bazel
+@@ -222,14 +222,79 @@ alias(
+     visibility = ["//visibility:public"],
+ )
+ 
++# Envoy: Patch
++
+ cc_binary(
+-    name = "protoc",
++    name = "compiled_protoc",
+     copts = COPTS,
+     linkopts = LINK_OPTS,
+     visibility = ["//visibility:public"],
+     deps = ["//src/google/protobuf/compiler:protoc_lib"],
+ )
+ 
++# Lifted from `rules_proto`
++config_setting(
++    name = "linux-aarch_64",
++    constraint_values = [
++        "@platforms//os:linux",
++        "@platforms//cpu:aarch64",
++    ],
++)
++
++config_setting(
++    name = "linux-x86_64",
++    constraint_values = [
++        "@platforms//os:linux",
++        "@platforms//cpu:x86_64",
++    ],
++)
++
++config_setting(
++    name = "osx-aarch_64",
++    constraint_values = [
++        "@platforms//os:osx",
++        "@platforms//cpu:aarch64",
++    ],
++)
++
++config_setting(
++    name = "osx-x86_64",
++    constraint_values = [
++        "@platforms//os:osx",
++        "@platforms//cpu:x86_64",
++    ],
++)
++
++config_setting(
++    name = "win64",
++    constraint_values = [
++        "@platforms//os:windows",
++        "@platforms//cpu:x86_64",
++    ],
++)
++
++# Use precompiled binaries where possible.
++alias(
++    name = "protoc",
++    actual = select({
++        ":linux-aarch_64": "@com_google_protobuf_protoc_linux_aarch_64//:protoc",
++        ":linux-x86_64": "@com_google_protobuf_protoc_linux_x86_64//:protoc",
++        ":osx-aarch_64": "@com_google_protobuf_protoc_osx_aarch_64//:protoc",
++        ":osx-x86_64": "@com_google_protobuf_protoc_osx_x86_64//:protoc",
++        ":win64": "@com_google_protobuf_protoc_win64//:protoc",
++        "//conditions:default": ":compiled_protoc",
++    }),
++    visibility = ["//visibility:public"],
++)
++
++alias(
++    name = "protobuf_python_genproto",
++    actual = "//python:well_known_types_py_pb2_genproto",
++    visibility = ["//visibility:public"],
++)
++
++# /Envoy: Patch
++
+ cc_binary(
+     name = "protoc_static",
+     copts = COPTS,
+diff --git a/python/google/protobuf/__init__.py b/python/google/protobuf/__init__.py
+index 022974824..418779fd2 100755
+--- a/python/google/protobuf/__init__.py
++++ b/python/google/protobuf/__init__.py
+@@ -8,3 +8,10 @@
+ # Copyright 2007 Google Inc. All Rights Reserved.
+ 
+ __version__ = '5.28.2'
++
++
++if __name__ != '__main__':
++    try:
++        __import__('pkg_resources').declare_namespace(__name__)
++    except ImportError:
++        __path__ = __import__('pkgutil').extend_path(__path__, __name__)
+diff --git a/src/google/protobuf/compiler/BUILD.bazel b/src/google/protobuf/compiler/BUILD.bazel
+index 3f5624d5f..e194b172f 100644
+--- a/src/google/protobuf/compiler/BUILD.bazel
++++ b/src/google/protobuf/compiler/BUILD.bazel
+@@ -517,7 +517,7 @@ cc_library(
+     srcs = ["retention.cc"],
+     hdrs = ["retention.h"],
+     strip_include_prefix = "/src",
+-    visibility = ["//src/google/protobuf:__subpackages__"],
++    visibility = ["//visibility:public"],
+     deps = [
+         "//src/google/protobuf",
+         "//src/google/protobuf:port",
+diff --git a/src/google/protobuf/io/BUILD.bazel b/src/google/protobuf/io/BUILD.bazel
+index 66819966b..446d75420 100644
+--- a/src/google/protobuf/io/BUILD.bazel
++++ b/src/google/protobuf/io/BUILD.bazel
+@@ -158,7 +158,7 @@ cc_library(
+         "@com_google_absl//absl/log:absl_log",
+     ] + select({
+         "//build_defs:config_msvc": [],
+-        "//conditions:default": ["@zlib"],
++        "//conditions:default": ["@envoy//bazel/foreign_cc:zlib"],
+     }),
+ )
+ 
+diff --git a/src/google/protobuf/port_def.inc b/src/google/protobuf/port_def.inc
+index 37d80e591..c17f61a76 100644
+--- a/src/google/protobuf/port_def.inc
++++ b/src/google/protobuf/port_def.inc
+@@ -856,7 +856,7 @@ static_assert(PROTOBUF_ABSL_MIN(20230125, 3),
+ #pragma clang diagnostic ignored "-Wshorten-64-to-32"
+ // Turn on -Wdeprecated-enum-enum-conversion. This deprecation comes in C++20
+ // via http://wg21.link/p1120r0.
+-#pragma clang diagnostic error "-Wdeprecated-enum-enum-conversion"
++// #pragma clang diagnostic error "-Wdeprecated-enum-enum-conversion"
+ // This error has been generally flaky, but we need to disable it specifically
+ // to fix https://github.com/protocolbuffers/protobuf/issues/12313
+ #pragma clang diagnostic ignored "-Wunused-parameter"
+@@ -925,7 +925,8 @@ static_assert(PROTOBUF_ABSL_MIN(20230125, 3),
+ #pragma warning(disable: 4125)
+ #endif
+ 
+-#if PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII
++#if defined(PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII) && \
++  PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII
+ #define PROTOBUF_DEBUG true
+ #else
+ #define PROTOBUF_DEBUG false
