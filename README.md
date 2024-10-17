@@ -1,6 +1,6 @@
 # MonoRepoTest
 
-This repository consists from publicly available:
+This repository consist from publicly available:
 * https://github.com/bitcoin/bitcoin
 * https://github.com/cocos2d/cocos2d-x
 * https://github.com/OpenPrinting/cups
